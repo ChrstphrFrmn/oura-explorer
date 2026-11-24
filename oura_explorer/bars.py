@@ -338,3 +338,43 @@ def linked_bars(nightly, outcome, compare="window"):
         term["q"], term["label"] = float(q), label(q, term["p"])
     groups = fit_bar(nightly, outcome, "bedtime", corr, compare, GROUPS, 1.0)
     return {"bars": bars, "groups": groups}
+
+
+def bedtime_breakdown(nightly, outcome, compare="window"):
+    """Split each side of the bedtime bar into the part through time asleep and the rest.
+
+    Going to bed later than normal usually means a shorter night, and a shorter night
+    changes most sleep measures. Each side of the bar (per hour earlier, per hour later)
+    is the sum of two parts: the change in time asleep times what an hour of sleep goes
+    with, and the rest, which goes with the bedtime at the same length of sleep. Both
+    come from the bar's own nights and matching. Returns None for time asleep itself,
+    or when there are too few nights.
+    """
+    if outcome == "asleep_min":
+        return None
+    way, sides = COMPARISONS[compare], list(BARS["bedtime"].terms)
+    matched = held_columns("bedtime", lookalikes(nightly))
+    usable = nightly[[outcome, "asleep_min", *sides, *matched]].dropna()
+    nights = usable[in_a_pair(usable.index)]
+    if len(nights) < MIN_NIGHTS:
+        return None
+    place = way.place(nights.index)
+    X = nights[[*sides, *matched]].to_numpy(float)
+    y = nights[outcome].to_numpy(float)
+    asleep = nights["asleep_min"].to_numpy(float)
+    total, total_se = way.fit(y, X, place)
+    sleep, sleep_se = way.fit(asleep, X, place)
+    rest, rest_se = way.fit(y, np.column_stack([X, asleep / 60]), place)
+    return {
+        "nights": len(nights),
+        "per_hour_asleep": estimate(rest[-1], rest_se[-1]),
+        "sides": {
+            side: {
+                "total": estimate(total[k], total_se[k]),
+                "sleep_min": estimate(sleep[k], sleep_se[k]),
+                "through_sleep": float(sleep[k] / 60 * rest[-1]),
+                "rest": estimate(rest[k], rest_se[k]),
+            }
+            for k, side in enumerate(sides)
+        },
+    }
