@@ -41,7 +41,9 @@ def one_day(tmp_path):
     readings from 6 AM (12 high stress, 3 low stress, 9 high calm, 6 low calm),
     2 steps a minute from wake-up at 2 AM to the stop, a nap from 4:00 to 5:20 PM
     (middle before the stop) and one from 5:40 to 6:20 PM (middle after it).
-    A reading and steps after the stop must not count toward the day.
+    Imported heart rate: 10 minutes at 150 bpm and 10 at 100 from 8 AM, then 5 minutes
+    at 150 after the stop. The top heart rate is 150, so 120 or more is hard.
+    A reading, steps and hard minutes after the stop must not count toward the day.
     """
     sleep = [SLEEP_COLUMNS]
     for day in range(1, 7):
@@ -64,22 +66,41 @@ def one_day(tmp_path):
         steps.append(f"{utc(local(6, 2) + timedelta(minutes=minute))};2")
     steps.append(f"{utc(local(6, 17, 30))};500")
     (tmp_path / "stepcount.csv").write_text("\n".join(steps) + "\n")
+
+    beats = [
+        (local(6, 8), 150, 10),
+        (local(6, 8, 10), 100, 10),
+        (local(6, 18, 30), 150, 5),
+    ]
+    imported = ["timestamp;bpm;imported_from;origin_source"]
+    for start, bpm, minutes in beats:
+        for minute in range(minutes):
+            moment = utc(start + timedelta(minutes=minute))
+            imported.append(f"{moment};{bpm};google_health_connect;")
+    (tmp_path / "importedheartrate.csv").write_text("\n".join(imported) + "\n")
     return load_export(tmp_path)
 
 
 def test_the_day_is_counted_up_to_the_stop(one_day):
-    """Shares, steps per hour and naps for the night of Jan 7 come out as built."""
+    """Shares, steps per hour, naps and hard minutes for the night of Jan 7 come out as built."""
     row = one_day.execute("""
         SELECT normal_bed_h, day_ok, stress_share, calm_share, steps_ph,
-               nap_min, napped, evening_nap
+               nap_min, napped, evening_nap, hard_min
         FROM nightly
         WHERE night = '2026-01-07'
         """).fetchone()
-    assert row == (8.0, True, 0.4, 0.3, 120.0, 60.0, 1.0, 1.0)
+    assert row == (8.0, True, 0.4, 0.3, 120.0, 60.0, 1.0, 1.0, 10.0)
+
+
+def test_no_imported_heart_rate_leaves_hard_minutes_empty(one_day, tmp_path):
+    """Without an imported heart-rate file no night gets hard minutes, not even 0."""
+    (tmp_path / "importedheartrate.csv").unlink()
+    con = load_export(tmp_path)
+    assert con.execute("SELECT count(hard_min) FROM nightly").fetchone() == (0,)
 
 
 def test_demo_export_matches_the_change_3_counts():
-    """The demo export gives the night counts from the Change 3 run."""
+    """The demo export gives the night counts from the Change 3 and Change 2 runs."""
     con = load_export(DEMO_EXPORT)
     counts = con.execute("""
         SELECT
@@ -92,7 +113,9 @@ def test_demo_export_matches_the_change_3_counts():
             count(bb_hr),
             count(bb_steps_k),
             sum(early_group),
-            sum(late_group)
+            sum(late_group),
+            count(hard_min),
+            count(*) FILTER (WHERE hard_min > 0)
         FROM nightly
         """).fetchone()
-    assert counts == (269, 248, 248, 36, 12, 250, 233, 259, 40, 44)
+    assert counts == (269, 248, 248, 36, 12, 250, 233, 259, 40, 44, 262, 200)
