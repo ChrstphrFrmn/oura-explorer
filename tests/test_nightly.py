@@ -1,5 +1,7 @@
 """Tests for the nightly table: the counting windows, shares, steps and naps."""
 
+import csv
+import shutil
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -160,3 +162,42 @@ def test_counting_up_to_bedtime_would_leak(tmp_path):
     assert at_8[:2] == at_7[:2]
     assert at_8[1] == 60.0
     assert (at_8[2], at_7[2]) == (1080.0, 1020.0)
+
+
+DAY_OF_AUG_29 = """
+    SELECT epoch(day_stop), day_ok, stress_share, calm_share, steps_ph,
+           nap_min, evening_nap, hard_min, bed_h, hours_awake
+    FROM nightly
+    WHERE night = '2026-08-29'
+"""
+
+
+def move_bedtime(folder, period, hours):
+    """Start one sleep period `hours` earlier in an export, keeping its end."""
+    path = folder / "sleepmodel.csv"
+    with path.open(newline="") as f:
+        rows = list(csv.reader(f, delimiter=";"))
+    start, in_bed = rows[0].index("bedtime_start"), rows[0].index("time_in_bed")
+    for row in rows[1:]:
+        if row[0] == period:
+            moved = datetime.fromisoformat(row[start]) - timedelta(hours=hours)
+            row[start] = moved.isoformat(timespec="milliseconds")
+            row[in_bed] = str(int(row[in_bed]) + hours * 3600)
+    with path.open("w", newline="") as f:
+        csv.writer(f, delimiter=";").writerows(rows)
+
+
+def test_a_real_night_moved_an_hour_earlier_keeps_its_day(tmp_path):
+    """Fri Aug 28: in bed at 7:50 PM, day stop 5:18 PM, no nap.
+
+    Moved to 6:50 PM in a copy of the demo export, the day's stop, stress, calm,
+    steps, naps and hard minutes don't move. Only bedtime and hours awake do.
+    """
+    before = load_export(DEMO_EXPORT).execute(DAY_OF_AUG_29).fetchone()
+    export = tmp_path / "export"
+    shutil.copytree(DEMO_EXPORT, export)
+    move_bedtime(export, "436ba8b4-5101-4a91-8b9c-d0da568fbfc9", 1)
+    after = load_export(export).execute(DAY_OF_AUG_29).fetchone()
+    assert after[:8] == before[:8]
+    assert before[8] - after[8] == pytest.approx(1)
+    assert before[9] - after[9] == pytest.approx(1)
