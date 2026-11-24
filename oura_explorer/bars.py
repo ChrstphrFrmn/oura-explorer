@@ -134,6 +134,12 @@ def pairs(days, window=WINDOW):
     return earlier[near], later[near]
 
 
+def in_a_pair(dates, window=WINDOW):
+    """Which nights have at least one other night within `window` days of them."""
+    earlier, later = pairs(day_numbers(dates), window)
+    return np.bincount(np.concatenate([earlier, later]), minlength=len(dates)) > 0
+
+
 def newey_west(scores, lags=LAGS):
     """Newey-West (Bartlett) sum of the score rows' outer products, rows in date order."""
     total = scores.T @ scores
@@ -278,8 +284,7 @@ def fit_bar(nightly, outcome, bar, corr, compare="window", terms=None, scale=Non
     terms, scale = list(terms or spec.terms), scale or spec.unit
     matched = held_columns(bar, corr)
     usable = nightly[[outcome, *terms, *matched]].dropna()
-    earlier, later = pairs(day_numbers(usable.index))
-    in_pair = np.bincount(np.concatenate([earlier, later]), minlength=len(usable)) > 0
+    in_pair = in_a_pair(usable.index)
     nights = usable[in_pair]
     place = way.place(nights.index)
     result = {

@@ -21,9 +21,9 @@ from oura_explorer.bars import (
     day_numbers,
     estimate,
     fit_window,
+    in_a_pair,
     label,
     lookalikes,
-    pairs,
     paired_yes_nights,
 )
 
@@ -84,8 +84,7 @@ def fit_row(nightly, outcome, column, matched):
     row, (unit, _) = ROWS[column], SLEEP_UNITS[outcome]
     frame = pd.concat([nightly[outcome] / unit, nightly[matched]], axis=1)
     frame = frame.assign(next=next_day(nightly, column)).dropna()
-    earlier, later = pairs(day_numbers(frame.index))
-    in_pair = np.bincount(np.concatenate([earlier, later]), minlength=len(frame)) > 0
+    in_pair = in_a_pair(frame.index)
     nights = frame[in_pair]
     days = day_numbers(nights.index)
     result = {
