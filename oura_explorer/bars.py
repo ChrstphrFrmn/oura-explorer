@@ -6,11 +6,12 @@ factor and everything the bar is matched on, and fits one slope through zero to 
 pairs' changes. Every night is in many pairs, so how sure the bar is gets worked out
 night by night, each night counted once: Newey-West with 7 lags, nights in date order.
 
-The month version compares nights within calendar months instead. It's kept for the
-Advanced view.
+The Advanced view also works out each bar four other ways, on the same nights: within
+7 days, within 30 days, with no time limit, and within calendar months.
 """
 
 import math
+from functools import partial
 from statistics import NormalDist
 from typing import Callable, NamedTuple
 
@@ -149,14 +150,16 @@ def newey_west(scores, lags=LAGS):
     return total
 
 
-def fit_window(y, X, days):
-    """The 15-day comparison: one slope per column of X, through zero, over every pair.
+def fit_window(y, X, days, window=WINDOW):
+    """Compare nights at most `window` days apart: one slope per column of X, through zero.
 
-    Every night must be in at least one pair. Returns the slopes and their standard
-    errors. A night's score is the sum of its changes over its pairs times the average
-    of its pair residuals, both taken as the night minus the other night.
+    Fits every pair's changes (later night minus earlier). With window=math.inf every
+    two nights are a pair, which gives the same slopes as one regression with no time
+    control. Returns the slopes and their standard errors. A night's score is the sum
+    of its changes over its pairs times the average of its pair residuals, both taken
+    as the night minus the other night; a night in no pair adds nothing.
     """
-    earlier, later = pairs(days)
+    earlier, later = pairs(days, window)
     dX, dy = X[later] - X[earlier], y[later] - y[earlier]
     bread = np.linalg.inv(dX.T @ dX)
     slopes = bread @ dX.T @ dy
@@ -166,7 +169,7 @@ def fit_window(y, X, days):
         np.add.at(changes, rows, sign * dX)
         np.add.at(own, rows, sign * residuals)
     count = np.bincount(np.concatenate([earlier, later]), minlength=len(y))
-    scores = changes * (own / count)[:, None]
+    scores = changes * (own / np.maximum(count, 1))[:, None]
     return slopes, np.sqrt(np.diag(bread @ newey_west(scores) @ bread))
 
 
@@ -214,10 +217,24 @@ class Comparison(NamedTuple):
     paired_yes: Callable
 
 
+def within(window):
+    """Compare nights at most `window` days apart, with the yes/no rule to match."""
+    return Comparison(
+        partial(fit_window, window=window),
+        day_numbers,
+        partial(paired_yes_nights, window=window),
+    )
+
+
+# The page uses the first; the Advanced view shows them all.
 COMPARISONS = {
-    "window": Comparison(fit_window, day_numbers, paired_yes_nights),
-    "month": Comparison(fit_month, month_numbers, paired_within_months),
+    "15 days": within(WINDOW),
+    "7 days": within(7),
+    "30 days": within(30),
+    "no time limit": within(math.inf),
+    "same month": Comparison(fit_month, month_numbers, paired_within_months),
 }
+MAIN = "15 days"
 
 
 def lookalikes(nightly):
@@ -271,11 +288,11 @@ def estimate(slope, error):
     }
 
 
-def fit_bar(nightly, outcome, bar, corr, compare="window", terms=None, scale=None):
+def fit_bar(nightly, outcome, bar, corr, compare=MAIN, terms=None, scale=None):
     """One bar: what it's matched on, the nights behind it and, if enough, its terms.
 
-    compare is "window" (nights at most 15 days apart) or "month" (the same month).
-    Nights with no other usable night within 15 days are lost, in both versions.
+    compare names one of COMPARISONS. Every way uses the same nights: those with
+    another usable night within 15 days. The rest are lost.
     A bar with too few nights, or a yes/no bar with too few yes nights that can be
     paired with a no night, gets no terms: not enough data.
     terms and scale replace the bar's own columns and unit, for the bedtime groups.
@@ -323,7 +340,7 @@ def label(q, p):
     return "Some evidence" if p < 0.05 else "No clear link"
 
 
-def linked_bars(nightly, outcome, compare="window"):
+def linked_bars(nightly, outcome, compare=MAIN):
     """Every bar for one sleep measure, labelled, plus the bedtime bar's outlier groups.
 
     Labels use Benjamini-Hochberg across every term tested for the sleep measure:
@@ -340,7 +357,7 @@ def linked_bars(nightly, outcome, compare="window"):
     return {"bars": bars, "groups": groups}
 
 
-def bedtime_breakdown(nightly, outcome, compare="window"):
+def bedtime_breakdown(nightly, outcome, compare=MAIN):
     """Split each side of the bedtime bar into the part through time asleep and the rest.
 
     Going to bed later than normal usually means a shorter night, and a shorter night

@@ -135,7 +135,7 @@ def test_without_a_watch_there_is_no_workouts_bar(demo):
 def test_demo_month_version_matches_the_change_3_run(demo):
     """Without workouts, the month version gives the Change 3 numbers for two REM bars."""
     without = demo.assign(hard_min=np.nan)
-    bars = linked_bars(without, "rem_min", compare="month")["bars"]
+    bars = linked_bars(without, "rem_min", compare="same month")["bars"]
     later = bars["bedtime"]["terms"]["later"]
     assert later["effect"] == pytest.approx(-4.63, abs=0.005)
     assert bars["napped"]["terms"]["napped"]["effect"] == pytest.approx(6.87, abs=0.005)
