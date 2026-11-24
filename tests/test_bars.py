@@ -7,6 +7,7 @@ import pandas as pd
 import pytest
 
 from oura_explorer.bars import (
+    bedtime_breakdown,
     benjamini_hochberg,
     day_numbers,
     fit_window,
@@ -138,3 +139,21 @@ def test_demo_month_version_matches_the_change_3_run(demo):
     later = bars["bedtime"]["terms"]["later"]
     assert later["effect"] == pytest.approx(-4.63, abs=0.005)
     assert bars["napped"]["terms"]["napped"]["effect"] == pytest.approx(6.87, abs=0.005)
+
+
+def test_the_bedtime_breakdown_adds_up(demo):
+    """Each side of REM's bedtime bar is its part through time asleep plus the rest.
+
+    An hour later than normal: 5.24 fewer minutes of REM, of which 4.13 come with the
+    20 minutes less sleep and 1.11 are left over.
+    """
+    split = bedtime_breakdown(demo, "rem_min")
+    bar = linked_bars(demo, "rem_min")["bars"]["bedtime"]["terms"]
+    for side, parts in split["sides"].items():
+        assert parts["total"]["effect"] == pytest.approx(bar[side]["effect"])
+        added = parts["through_sleep"] + parts["rest"]["effect"]
+        assert added == pytest.approx(parts["total"]["effect"])
+    later = split["sides"]["later"]
+    assert later["through_sleep"] == pytest.approx(-4.13, abs=0.005)
+    assert later["rest"]["effect"] == pytest.approx(-1.11, abs=0.005)
+    assert bedtime_breakdown(demo, "asleep_min") is None
