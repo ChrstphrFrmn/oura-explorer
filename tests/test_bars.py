@@ -10,7 +10,9 @@ from oura_explorer.bars import (
     benjamini_hochberg,
     day_numbers,
     fit_window,
+    held,
     linked_bars,
+    lookalikes,
     nightly_frame,
     paired_within_months,
     paired_yes_nights,
@@ -20,7 +22,8 @@ from oura_explorer.load import load_export
 
 DEMO_EXPORT = Path(__file__).parent.parent / "demo-data"
 # REM on the demo export, minutes of REM per unit of each term and its label: with the
-# Workouts bar (Change 2 run) and without it (Change 4 run, an export with no watch).
+# Workouts bar, workouts first in the day (Change 2 run), and without it (Change 4 run,
+# an export with no watch).
 REM_TERMS = {
     "last_sleep_h": (-1.79, "No clear link"),
     "weekend": (-1.71, "No clear link"),
@@ -28,7 +31,7 @@ REM_TERMS = {
     "stress_share": (-1.10, "No clear link"),
     "calm_share": (2.84, "No clear link"),
     "steps_ph": (-1.59, "No clear link"),
-    "hard_min": (-0.46, "No clear link"),
+    "hard_min": (-1.70, "No clear link"),
     "napped": (7.08, "Some evidence"),
     "earlier": (3.98, "No clear link"),
     "later": (-5.24, "Strong evidence"),
@@ -100,6 +103,14 @@ def check_terms(terms, expected):
     for term, (effect, label) in expected.items():
         assert terms[term]["effect"] == pytest.approx(effect, abs=0.005)
         assert terms[term]["label"] == label
+
+
+def test_workouts_come_before_the_rest_of_the_day(demo):
+    """The workouts bar holds only the background; the rest of the day holds workouts."""
+    corr = lookalikes(demo)
+    assert held("hard_min", corr) == ["last_sleep_h", "weekend", "spread_min"]
+    for bar in ("stress_share", "calm_share", "steps_ph", "napped", "bedtime"):
+        assert "hard_min" in held(bar, corr)
 
 
 def test_demo_rem_bars_match_the_change_2_run(demo):
