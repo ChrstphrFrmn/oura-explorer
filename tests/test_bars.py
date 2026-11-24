@@ -8,12 +8,16 @@ import pandas as pd
 import pytest
 
 from oura_explorer.bars import (
+    BARS,
+    Z,
     bedtime_breakdown,
     benjamini_hochberg,
     day_numbers,
     every_way,
     fit_window,
     held,
+    held_columns,
+    in_a_pair,
     linked_bars,
     lookalikes,
     nightly_frame,
@@ -61,9 +65,15 @@ REM_TERMS_WITHOUT_WORKOUTS = {
 
 
 @pytest.fixture(scope="module")
-def demo():
+def demo_con():
+    """The demo export, loaded."""
+    return load_export(DEMO_EXPORT)
+
+
+@pytest.fixture(scope="module")
+def demo(demo_con):
     """The demo export's nightly table."""
-    return nightly_frame(load_export(DEMO_EXPORT))
+    return nightly_frame(demo_con)
 
 
 def test_the_worked_example():
@@ -182,3 +192,58 @@ def test_every_way_marks_labels_that_change(demo):
     assert not workouts["steady"]
     assert workouts["ways"]["15 days"]["label"] == "No clear link"
     assert workouts["ways"]["no time limit"]["label"] == "Strong evidence"
+
+
+# Each night's awake heart-rate readings in the 2 hours before bed, on the person's
+# clock, averaged as hours after noon (like bed_h).
+CLOCK_BEFORE_BED = """
+    WITH readings AS (
+        SELECT n.night, h.taken_at + (n.start_local - CAST(n.start_at AS TIMESTAMP)) AS seen
+        FROM nights AS n
+        JOIN heart_rate AS h
+            ON h.source = 'awake'
+            AND h.taken_at >= n.start_at - INTERVAL 2 HOUR
+            AND h.taken_at < n.start_at
+    )
+    SELECT night, avg((hour(seen) + 12) % 24 + minute(seen) / 60) AS clock
+    FROM readings
+    GROUP BY night
+    HAVING count(*) >= 20
+"""
+
+
+def flagged(frame, columns, draws=200):
+    """Share of made-up sleep draws in which the before-bed heart-rate bar shows p < .05.
+
+    The made-up sleep only gets shorter with a later clock bedtime (24 minutes an hour),
+    plus noise, so any link with before-bed heart rate is a false alarm.
+    """
+    nights = frame[["bb_hr", *columns]].dropna()
+    nights = nights[in_a_pair(nights.index)]
+    X, days = nights.to_numpy(float), day_numbers(nights.index)
+    bedtime = frame.loc[nights.index, "bed_h"].to_numpy()
+    rng = np.random.default_rng(6)
+    hits = 0
+    for _ in range(draws):
+        sleep = -24 * bedtime + rng.normal(0, 60, len(nights))
+        slopes, errors = fit_window(sleep, X, days)
+        hits += abs(slopes[0] / errors[0]) > Z
+    return hits / draws
+
+
+def test_a_clock_only_signal_shows_no_link_before_bed(demo_con, demo):
+    """Before-bed heart rate replaced by the clock time of each heart-rate reading.
+
+    Late nights get a higher number just from the clock, and late nights are short.
+    Matched as the bar is, on the clock bedtime among the rest, it's flagged about as
+    often as noise. Matched on nothing about bedtime, it's flagged almost every time.
+    """
+    data = demo_con.execute(CLOCK_BEFORE_BED).fetchnumpy()
+    clock = pd.Series(data["clock"], index=pd.DatetimeIndex(data["night"]))
+    frame = demo.assign(bb_hr=clock.reindex(demo.index))
+    corr = lookalikes(frame)
+    matched = held_columns("bb_hr", corr)
+    day_only = [c for bar in corr.index if BARS[bar].stage < 3 for c in BARS[bar].terms]
+    assert "bed_h" in matched
+    assert flagged(frame, matched) < 0.15
+    assert flagged(frame, day_only) > 0.9
