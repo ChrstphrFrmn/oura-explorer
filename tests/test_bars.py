@@ -1,5 +1,6 @@
 """Tests for the bars: the 15-day comparison, the yes/no rule, the labels, the demo export."""
 
+import math
 from pathlib import Path
 
 import numpy as np
@@ -7,8 +8,10 @@ import pandas as pd
 import pytest
 
 from oura_explorer.bars import (
+    bedtime_breakdown,
     benjamini_hochberg,
     day_numbers,
+    every_way,
     fit_window,
     held,
     linked_bars,
@@ -134,7 +137,48 @@ def test_without_a_watch_there_is_no_workouts_bar(demo):
 def test_demo_month_version_matches_the_change_3_run(demo):
     """Without workouts, the month version gives the Change 3 numbers for two REM bars."""
     without = demo.assign(hard_min=np.nan)
-    bars = linked_bars(without, "rem_min", compare="month")["bars"]
+    bars = linked_bars(without, "rem_min", compare="same month")["bars"]
     later = bars["bedtime"]["terms"]["later"]
     assert later["effect"] == pytest.approx(-4.63, abs=0.005)
     assert bars["napped"]["terms"]["napped"]["effect"] == pytest.approx(6.87, abs=0.005)
+
+
+def test_the_bedtime_breakdown_adds_up(demo):
+    """Each side of REM's bedtime bar is its part through time asleep plus the rest.
+
+    An hour later than normal: 5.24 fewer minutes of REM, of which 4.13 come with the
+    20 minutes less sleep and 1.11 are left over.
+    """
+    split = bedtime_breakdown(demo, "rem_min")
+    bar = linked_bars(demo, "rem_min")["bars"]["bedtime"]["terms"]
+    for side, parts in split["sides"].items():
+        assert parts["total"]["effect"] == pytest.approx(bar[side]["effect"])
+        added = parts["through_sleep"] + parts["rest"]["effect"]
+        assert added == pytest.approx(parts["total"]["effect"])
+    later = split["sides"]["later"]
+    assert later["through_sleep"] == pytest.approx(-4.13, abs=0.005)
+    assert later["rest"]["effect"] == pytest.approx(-1.11, abs=0.005)
+    assert bedtime_breakdown(demo, "asleep_min") is None
+
+
+def test_no_time_limit_is_one_regression_without_time_control():
+    """Pairing every two nights gives the slopes of one regression with an intercept."""
+    rng = np.random.default_rng(12)
+    X = rng.normal(size=(40, 2))
+    y = X @ [1.5, -0.5] + rng.normal(size=40)
+    slopes, _ = fit_window(y, X, np.arange(40) * 3, window=math.inf)
+    with_intercept = np.column_stack([np.ones(40), X])
+    expected = np.linalg.lstsq(with_intercept, y, rcond=None)[0][1:]
+    assert slopes == pytest.approx(expected)
+
+
+def test_every_way_marks_labels_that_change(demo):
+    """REM's later side is strong every way; workouts is only strong with no time limit."""
+    ways = every_way(demo, "rem_min")
+    later = ways["later"]
+    assert later["steady"]
+    assert {found["label"] for found in later["ways"].values()} == {"Strong evidence"}
+    workouts = ways["hard_min"]
+    assert not workouts["steady"]
+    assert workouts["ways"]["15 days"]["label"] == "No clear link"
+    assert workouts["ways"]["no time limit"]["label"] == "Strong evidence"
