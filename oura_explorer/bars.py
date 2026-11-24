@@ -7,7 +7,8 @@ pairs' changes. Every night is in many pairs, so how sure the bar is gets worked
 night by night, each night counted once: Newey-West with 7 lags, nights in date order.
 
 The Advanced view also works out each bar four other ways, on the same nights: within
-7 days, within 30 days, with no time limit, and within calendar months.
+7 days, within 30 days, with no time limit, and within calendar months. A bar whose
+label isn't the same every way gets a mark.
 """
 
 import math
@@ -395,3 +396,23 @@ def bedtime_breakdown(nightly, outcome, compare=MAIN):
             for k, side in enumerate(sides)
         },
     }
+
+
+def every_way(nightly, outcome):
+    """Each bar's terms worked out every way, and whether the label is the same each way.
+
+    The page's labels come from the 15-day comparison. The Advanced view shows the
+    other ways beside it and marks a term whose label isn't the same every way.
+    """
+    ways = {way: linked_bars(nightly, outcome, way)["bars"] for way in COMPARISONS}
+    result = {}
+    for bar in ways[MAIN]:
+        for term in BARS[bar].terms:
+            found = {
+                way: bars[bar].get("terms", {}).get(term) for way, bars in ways.items()
+            }
+            labels = {
+                each["label"] if each else "Not enough data" for each in found.values()
+            }
+            result[term] = {"ways": found, "steady": len(labels) == 1}
+    return result
