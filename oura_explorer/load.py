@@ -26,7 +26,7 @@ def sql(name):
 def load_export(folder):
     """Load the Oura export in folder into a new in-memory DuckDB database.
 
-    Reads the files the site uses into tables.
+    Reads the files the site uses into tables, then builds the nights and the naps.
     A file that is missing or empty gives an empty table.
     Returns the open connection.
     """
@@ -36,4 +36,12 @@ def load_export(folder):
         path = Path(folder) / name
         if path.is_file() and path.stat().st_size > 0:
             con.execute(sql(table), {"path": str(path)})
+    con.execute(sql("nights"))
+    con.execute(sql("naps"))
     return con
+
+
+def night_summary(con):
+    """Return the number of nights and the dates of the first and the last one."""
+    query = "SELECT count(*), min(night), max(night) FROM nights"
+    return con.cursor().execute(query).fetchone()
