@@ -4,6 +4,8 @@
 --   steps_ph: steps per hour. Step records for half the minutes needed.
 --   A nap counts where its middle falls: before the stop it's a day nap (nap_min, napped),
 --   after it an evening nap.
+--   hard_min: minutes at a hard heart rate, from imported heart rate (0 on a day without
+--     any). Left empty when the export has no imported heart rate at all.
 CREATE TABLE day_factors AS
 WITH days AS (
     SELECT night, woke_at, day_stop, start_at
@@ -47,6 +49,13 @@ napped AS (
     FROM days AS d
     LEFT JOIN naps AS n ON n.start_at >= d.woke_at AND n.end_at <= d.start_at
     GROUP BY d.night
+),
+trained AS (
+    SELECT d.night, coalesce(sum(h.seconds) FILTER (WHERE h.hard), 0) / 60 AS hard_min
+    FROM days AS d
+    LEFT JOIN hard_readings AS h
+        ON h.taken_at >= d.woke_at AND h.taken_at < d.day_stop
+    GROUP BY d.night
 )
 SELECT
     night,
@@ -56,8 +65,10 @@ SELECT
     CASE WHEN records >= minutes / 2 THEN steps / (minutes / 60) END AS steps_ph,
     coalesce(nap_min, 0) AS nap_min,
     CAST(coalesce(nap_min, 0) >= 10 AS DOUBLE) AS napped,
-    CAST(evening_naps > 0 AS DOUBLE) AS evening_nap
+    CAST(evening_naps > 0 AS DOUBLE) AS evening_nap,
+    CASE WHEN EXISTS (SELECT 1 FROM hard_readings) THEN hard_min END AS hard_min
 FROM read
 JOIN walked USING (night)
 JOIN napped USING (night)
+JOIN trained USING (night)
 ORDER BY night;

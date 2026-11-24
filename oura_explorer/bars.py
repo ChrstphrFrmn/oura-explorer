@@ -28,7 +28,10 @@ Z = NormalDist().inv_cdf(0.975)
 class Bar(NamedTuple):
     """A bar's label, its unit and what one unit means, its stage, and its columns.
 
-    Stages: 0 background, 1 the day, 2 bedtime, 3 the last hours before bed.
+    Stages, in the order things happen: 0 background, 1 workouts, 2 the rest of the
+    day, 3 bedtime, 4 the last hours before bed. Workouts come before the rest of the
+    day: a hard workout can raise the day's stress readings, change calm time and
+    steps, and lead to a nap, so the workouts bar doesn't hold those the same.
     """
 
     label: str
@@ -49,11 +52,14 @@ BARS = {
     "spread_min": Bar(
         "Bedtime regularity", 30.0, "per 30 min more spread", 0, False, ("spread_min",)
     ),
+    "hard_min": Bar(
+        "Workouts", 15.0, "per 15 more hard minutes", 1, False, ("hard_min",)
+    ),
     "stress_share": Bar(
         "Daytime stress",
         0.1,
         "per 10 points more of the readings",
-        1,
+        2,
         False,
         ("stress_share",),
     ),
@@ -61,36 +67,36 @@ BARS = {
         "Calm time",
         0.1,
         "per 10 points more of the readings",
-        1,
+        2,
         False,
         ("calm_share",),
     ),
     "steps_ph": Bar(
-        "Steps", 100.0, "per 100 more steps an hour", 1, False, ("steps_ph",)
+        "Steps", 100.0, "per 100 more steps an hour", 2, False, ("steps_ph",)
     ),
-    "napped": Bar("Daytime naps", 1.0, "nap day vs not", 1, True, ("napped",)),
+    "napped": Bar("Daytime naps", 1.0, "nap day vs not", 2, True, ("napped",)),
     "bedtime": Bar(
-        "Earlier or later than normal", 1.0, "per hour", 2, False, ("earlier", "later")
+        "Earlier or later than normal", 1.0, "per hour", 3, False, ("earlier", "later")
     ),
     "hours_awake": Bar(
-        "Hours awake", 1.5, "per 90 min more awake", 2, False, ("hours_awake",)
+        "Hours awake", 1.5, "per 90 min more awake", 3, False, ("hours_awake",)
     ),
     "bb_stress": Bar(
         "Stress before bed",
         0.25,
         "per 25 points more of the readings",
-        3,
+        4,
         False,
         ("bb_stress",),
     ),
     "bb_hr": Bar(
-        "Heart rate before bed", 5.0, "per 5 bpm higher", 3, False, ("bb_hr",)
+        "Heart rate before bed", 5.0, "per 5 bpm higher", 4, False, ("bb_hr",)
     ),
     "bb_steps_k": Bar(
-        "Steps before bed", 0.5, "per 500 steps", 3, False, ("bb_steps_k",)
+        "Steps before bed", 0.5, "per 500 steps", 4, False, ("bb_steps_k",)
     ),
     "evening_nap": Bar(
-        "Evening nap", 1.0, "evening nap vs not", 3, True, ("evening_nap",)
+        "Evening nap", 1.0, "evening nap vs not", 4, True, ("evening_nap",)
     ),
 }
 # The bedtime bar has two sides. Look-alikes are judged on the signed distance from
@@ -209,10 +215,20 @@ COMPARISONS = {
 
 
 def lookalikes(nightly):
-    """How closely each pair of bars moves together (|r|), across all nights."""
-    columns = [LOOKALIKE_COLUMN.get(bar, bar) for bar in BARS]
+    """How closely each pair of the export's bars moves together (|r|), across all nights.
+
+    Only bars whose own columns vary in this export are in it. A bar whose columns are
+    empty, such as workouts for an export without imported heart rate, is left out, so
+    no bar shows it and no other bar holds it the same.
+    """
+    bars = [
+        bar
+        for bar, spec in BARS.items()
+        if nightly[list(spec.terms)].nunique().min() > 1
+    ]
+    columns = [LOOKALIKE_COLUMN.get(bar, bar) for bar in bars]
     corr = nightly[columns].corr().abs().to_numpy()
-    return pd.DataFrame(corr, index=list(BARS), columns=list(BARS))
+    return pd.DataFrame(corr, index=bars, columns=bars)
 
 
 def held(bar, corr):
@@ -220,11 +236,11 @@ def held(bar, corr):
     stage = BARS[bar].stage
     return [
         other
-        for other, spec in BARS.items()
+        for other in corr.index
         if other != bar
         and (
-            spec.stage < stage
-            or (spec.stage == stage and corr.loc[bar, other] < LOOKALIKE_R)
+            BARS[other].stage < stage
+            or (BARS[other].stage == stage and corr.loc[bar, other] < LOOKALIKE_R)
         )
     ]
 
@@ -311,7 +327,7 @@ def linked_bars(nightly, outcome, compare="window"):
     nights within an hour, matched as the bedtime bar is.
     """
     corr = lookalikes(nightly)
-    bars = {bar: fit_bar(nightly, outcome, bar, corr, compare) for bar in BARS}
+    bars = {bar: fit_bar(nightly, outcome, bar, corr, compare) for bar in corr.index}
     tested = [term for bar in bars.values() for term in bar.get("terms", {}).values()]
     for term, q in zip(tested, benjamini_hochberg([term["p"] for term in tested])):
         term["q"], term["label"] = float(q), label(q, term["p"])

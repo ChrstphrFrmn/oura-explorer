@@ -33,6 +33,7 @@ SELECT
     d.nap_min,
     d.napped,
     d.evening_nap,
+    d.hard_min,
     b.bb_stress,
     b.bb_hr,
     b.bb_steps_k

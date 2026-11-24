@@ -10,7 +10,9 @@ from oura_explorer.bars import (
     benjamini_hochberg,
     day_numbers,
     fit_window,
+    held,
     linked_bars,
+    lookalikes,
     nightly_frame,
     paired_within_months,
     paired_yes_nights,
@@ -19,9 +21,26 @@ from oura_explorer.bars import (
 from oura_explorer.load import load_export
 
 DEMO_EXPORT = Path(__file__).parent.parent / "demo-data"
-# REM on the demo export, from the Change 4 run on the scratch tables:
-# minutes of REM per unit of each term, and its label.
+# REM on the demo export, minutes of REM per unit of each term and its label: with the
+# Workouts bar, workouts first in the day (Change 2 run), and without it (Change 4 run,
+# an export with no watch).
 REM_TERMS = {
+    "last_sleep_h": (-1.79, "No clear link"),
+    "weekend": (-1.71, "No clear link"),
+    "spread_min": (-1.54, "No clear link"),
+    "stress_share": (-1.10, "No clear link"),
+    "calm_share": (2.84, "No clear link"),
+    "steps_ph": (-1.59, "No clear link"),
+    "hard_min": (-1.70, "No clear link"),
+    "napped": (7.08, "Some evidence"),
+    "earlier": (3.98, "No clear link"),
+    "later": (-5.24, "Strong evidence"),
+    "hours_awake": (-3.94, "Some evidence"),
+    "bb_stress": (0.98, "No clear link"),
+    "bb_hr": (0.99, "No clear link"),
+    "bb_steps_k": (1.56, "No clear link"),
+}
+REM_TERMS_WITHOUT_WORKOUTS = {
     "last_sleep_h": (-1.79, "No clear link"),
     "weekend": (-1.71, "No clear link"),
     "spread_min": (-1.54, "No clear link"),
@@ -69,28 +88,53 @@ def test_benjamini_hochberg():
     assert q == pytest.approx([0.04, 0.16 / 3, 0.16 / 3, 0.5])
 
 
-def test_demo_rem_bars_match_the_change_4_run(demo):
-    """Every REM bar's size and label, evening nap short of data, and no night lost."""
-    result = linked_bars(demo, "rem_min")
-    bars = result["bars"]
-    terms = {
+def rem_terms(result):
+    """Every tested term of the REM bars, by name."""
+    return {
         term: found
-        for bar in bars.values()
+        for bar in result["bars"].values()
         for term, found in bar.get("terms", {}).items()
     }
-    assert set(terms) == set(REM_TERMS)
-    for term, (effect, label) in REM_TERMS.items():
+
+
+def check_terms(terms, expected):
+    """Each term's size and label are as expected, and no other term was tested."""
+    assert set(terms) == set(expected)
+    for term, (effect, label) in expected.items():
         assert terms[term]["effect"] == pytest.approx(effect, abs=0.005)
         assert terms[term]["label"] == label
-    assert "terms" not in bars["evening_nap"]
-    assert all(bar["lost"] == [] for bar in bars.values())
+
+
+def test_workouts_come_before_the_rest_of_the_day(demo):
+    """The workouts bar holds only the background; the rest of the day holds workouts."""
+    corr = lookalikes(demo)
+    assert held("hard_min", corr) == ["last_sleep_h", "weekend", "spread_min"]
+    for bar in ("stress_share", "calm_share", "steps_ph", "napped", "bedtime"):
+        assert "hard_min" in held(bar, corr)
+
+
+def test_demo_rem_bars_match_the_change_2_run(demo):
+    """Every REM bar's size and label, evening nap short of data, and no night lost."""
+    result = linked_bars(demo, "rem_min")
+    check_terms(rem_terms(result), REM_TERMS)
+    assert "terms" not in result["bars"]["evening_nap"]
+    assert all(bar["lost"] == [] for bar in result["bars"].values())
     late = result["groups"]["terms"]["late_group"]
-    assert late["effect"] == pytest.approx(-10.89, abs=0.005)
+    assert late["effect"] == pytest.approx(-10.92, abs=0.005)
+
+
+def test_without_a_watch_there_is_no_workouts_bar(demo):
+    """With no hard minutes, no bar holds workouts and REM is back to the Change 4 run."""
+    result = linked_bars(demo.assign(hard_min=np.nan), "rem_min")
+    assert "hard_min" not in result["bars"]
+    assert not any("hard_min" in bar["held"] for bar in result["bars"].values())
+    check_terms(rem_terms(result), REM_TERMS_WITHOUT_WORKOUTS)
 
 
 def test_demo_month_version_matches_the_change_3_run(demo):
-    """The month version gives the Change 3 numbers for the clearest REM bars."""
-    bars = linked_bars(demo, "rem_min", compare="month")["bars"]
+    """Without workouts, the month version gives the Change 3 numbers for two REM bars."""
+    without = demo.assign(hard_min=np.nan)
+    bars = linked_bars(without, "rem_min", compare="month")["bars"]
     later = bars["bedtime"]["terms"]["later"]
     assert later["effect"] == pytest.approx(-4.63, abs=0.005)
     assert bars["napped"]["terms"]["napped"]["effect"] == pytest.approx(6.87, abs=0.005)

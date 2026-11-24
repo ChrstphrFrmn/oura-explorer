@@ -25,6 +25,8 @@ CREATE TABLE readings (taken_at TIMESTAMPTZ, kind VARCHAR, value DOUBLE);
 
 CREATE TABLE heart_rate (taken_at TIMESTAMPTZ, bpm DOUBLE, source VARCHAR);
 
+CREATE TABLE imported_heart_rate (taken_at TIMESTAMPTZ, bpm DOUBLE);
+
 CREATE TABLE steps (taken_at TIMESTAMPTZ, steps DOUBLE);
 
 CREATE TABLE daily_sleep (day DATE, score DOUBLE);

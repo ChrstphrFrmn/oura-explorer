@@ -15,12 +15,14 @@ EXPORT_FILES = {
     "heart_rate": "heartrate.csv",
     "steps": "stepcount.csv",
     "daily_sleep": "dailysleep.csv",
+    "imported_heart_rate": "importedheartrate.csv",
 }
 BUILT_TABLES = [
     "nights",
     "naps",
     "night_times",
     "awake_readings",
+    "hard_readings",
     "day_factors",
     "before_bed",
     "nightly",
@@ -30,6 +32,17 @@ BUILT_TABLES = [
 def sql(name):
     """Return the text of one file in the sql/ folder, given its name without .sql."""
     return (SQL / f"{name}.sql").read_text()
+
+
+def export_file(folder, name):
+    """Return the path of an export file, or of its gzipped copy, if it has any content.
+
+    The demo export keeps its large imported heart-rate file gzipped.
+    """
+    for path in (Path(folder) / name, Path(folder) / f"{name}.gz"):
+        if path.is_file() and path.stat().st_size > 0:
+            return path
+    return None
 
 
 def load_export(folder):
@@ -43,8 +56,8 @@ def load_export(folder):
     con = duckdb.connect()
     con.execute(sql("schema"))
     for table, name in EXPORT_FILES.items():
-        path = Path(folder) / name
-        if path.is_file() and path.stat().st_size > 0:
+        path = export_file(folder, name)
+        if path:
             con.execute(sql(table), {"path": str(path)})
     for table in BUILT_TABLES:
         con.execute(sql(table))
