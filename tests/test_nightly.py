@@ -119,3 +119,44 @@ def test_demo_export_matches_the_change_3_counts():
         FROM nightly
         """).fetchone()
     assert counts == (269, 248, 248, 36, 12, 250, 233, 259, 40, 44, 262, 200)
+
+
+DAY_OF_JAN_7 = """
+    SELECT epoch(t.day_stop), d.steps_ph, sum(s.steps)
+    FROM nights AS n
+    JOIN night_times AS t USING (night)
+    JOIN day_factors AS d USING (night)
+    JOIN steps AS s ON s.taken_at >= n.woke_at AND s.taken_at < n.start_at
+    WHERE n.night = '2026-01-07'
+    GROUP BY ALL
+"""
+
+
+def made_up_day(folder, bedtime_hour):
+    """Six nights from 8 PM to 2 AM, the last from bedtime_hour instead.
+
+    The ring logs 1 step a minute from wake-up at 2 AM on Jan 6 until 8 PM.
+    """
+    folder.mkdir()
+    sleep = [SLEEP_COLUMNS]
+    for day in range(1, 7):
+        start = local(day, bedtime_hour if day == 6 else 20)
+        sleep.append(sleep_row(day, day + 1, start, local(day + 1, 2), 300))
+    (folder / "sleepmodel.csv").write_text("\n".join(sleep) + "\n")
+    minutes = (local(6, 2) + timedelta(minutes=m) for m in range(18 * 60))
+    steps = ["timestamp;steps", *(f"{utc(minute)};1" for minute in minutes)]
+    (folder / "stepcount.csv").write_text("\n".join(steps) + "\n")
+    return load_export(folder)
+
+
+def test_counting_up_to_bedtime_would_leak(tmp_path):
+    """To bed at 7 PM instead of 8 PM: the day stop (5 PM) and steps per hour (60) stay.
+
+    Counting from wake-up to bedtime, the old way, would lose an hour of steps
+    (1,080 down to 1,020), so a later bedtime would look like more steps.
+    """
+    at_8 = made_up_day(tmp_path / "at_8", 20).execute(DAY_OF_JAN_7).fetchone()
+    at_7 = made_up_day(tmp_path / "at_7", 19).execute(DAY_OF_JAN_7).fetchone()
+    assert at_8[:2] == at_7[:2]
+    assert at_8[1] == 60.0
+    assert (at_8[2], at_7[2]) == (1080.0, 1020.0)
