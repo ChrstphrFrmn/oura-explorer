@@ -68,6 +68,9 @@ BARS = {
     "steps_ph": Bar(
         "Steps", 100.0, "per 100 more steps an hour", 1, False, ("steps_ph",)
     ),
+    "hard_min": Bar(
+        "Workouts", 15.0, "per 15 more hard minutes", 1, False, ("hard_min",)
+    ),
     "napped": Bar("Daytime naps", 1.0, "nap day vs not", 1, True, ("napped",)),
     "bedtime": Bar(
         "Earlier or later than normal", 1.0, "per hour", 2, False, ("earlier", "later")
@@ -209,10 +212,20 @@ COMPARISONS = {
 
 
 def lookalikes(nightly):
-    """How closely each pair of bars moves together (|r|), across all nights."""
-    columns = [LOOKALIKE_COLUMN.get(bar, bar) for bar in BARS]
+    """How closely each pair of the export's bars moves together (|r|), across all nights.
+
+    Only bars whose own columns vary in this export are in it. A bar whose columns are
+    empty, such as workouts for an export without imported heart rate, is left out, so
+    no bar shows it and no other bar holds it the same.
+    """
+    bars = [
+        bar
+        for bar, spec in BARS.items()
+        if nightly[list(spec.terms)].nunique().min() > 1
+    ]
+    columns = [LOOKALIKE_COLUMN.get(bar, bar) for bar in bars]
     corr = nightly[columns].corr().abs().to_numpy()
-    return pd.DataFrame(corr, index=list(BARS), columns=list(BARS))
+    return pd.DataFrame(corr, index=bars, columns=bars)
 
 
 def held(bar, corr):
@@ -220,11 +233,11 @@ def held(bar, corr):
     stage = BARS[bar].stage
     return [
         other
-        for other, spec in BARS.items()
+        for other in corr.index
         if other != bar
         and (
-            spec.stage < stage
-            or (spec.stage == stage and corr.loc[bar, other] < LOOKALIKE_R)
+            BARS[other].stage < stage
+            or (BARS[other].stage == stage and corr.loc[bar, other] < LOOKALIKE_R)
         )
     ]
 
@@ -311,7 +324,7 @@ def linked_bars(nightly, outcome, compare="window"):
     nights within an hour, matched as the bedtime bar is.
     """
     corr = lookalikes(nightly)
-    bars = {bar: fit_bar(nightly, outcome, bar, corr, compare) for bar in BARS}
+    bars = {bar: fit_bar(nightly, outcome, bar, corr, compare) for bar in corr.index}
     tested = [term for bar in bars.values() for term in bar.get("terms", {}).values()]
     for term, q in zip(tested, benjamini_hochberg([term["p"] for term in tested])):
         term["q"], term["label"] = float(q), label(q, term["p"])
