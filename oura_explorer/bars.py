@@ -5,9 +5,13 @@ days apart, it takes the later night minus the earlier one, for the sleep measur
 factor and everything the bar is matched on, and fits one slope through zero to all the
 pairs' changes. Every night is in many pairs, so how sure the bar is gets worked out
 night by night, each night counted once: Newey-West with 7 lags, nights in date order.
+
+The month version compares nights within calendar months instead. It's kept for the
+Advanced view.
 """
 
 import numpy as np
+import pandas as pd
 
 WINDOW = 15
 LAGS = 7
@@ -16,6 +20,11 @@ LAGS = 7
 def day_numbers(dates):
     """Calendar day numbers of the nights' dates, for how many days apart two nights are."""
     return dates.values.astype("datetime64[D]").astype(np.int64)
+
+
+def month_numbers(dates):
+    """One number per calendar month, counting years: same number, same month."""
+    return np.asarray(dates.year * 12 + dates.month)
 
 
 def pairs(days, window=WINDOW):
@@ -55,4 +64,17 @@ def fit_window(y, X, days):
         np.add.at(own, rows, sign * residuals)
     count = np.bincount(np.concatenate([earlier, later]), minlength=len(y))
     scores = changes * (own / count)[:, None]
+    return slopes, np.sqrt(np.diag(bread @ newey_west(scores) @ bread))
+
+
+def fit_month(y, X, months):
+    """The month version: compared within calendar months, as with month indicators.
+
+    Returns the slopes and their Newey-West standard errors.
+    """
+    Xd = X - pd.DataFrame(X).groupby(months).transform("mean").to_numpy()
+    yd = y - pd.Series(y).groupby(months).transform("mean").to_numpy()
+    bread = np.linalg.inv(Xd.T @ Xd)
+    slopes = bread @ Xd.T @ yd
+    scores = Xd * (yd - Xd @ slopes)[:, None]
     return slopes, np.sqrt(np.diag(bread @ newey_west(scores) @ bread))
