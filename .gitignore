@@ -222,8 +222,21 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
-# Oura exports hold personal health data: they never go to GitHub
+# Uploads and other Oura exports stay out of git
 data/
+
+# My Oura export for the demo: only the files the site reads.
+# Tag, note and location files, and the rest of the export, never go in.
+demo-data/*
+!demo-data/sleepmodel.csv
+!demo-data/daytimestress.csv
+!demo-data/stepcount.csv
+!demo-data/heartrate.csv
+!demo-data/dailysleep.csv
+!demo-data/workout.csv
+!demo-data/dailycyclemappingdsr.csv
+!demo-data/periodstartdsr.csv
+!demo-data/importedheartrate.csv.gz
 
 # Local database files
 *.duckdb
