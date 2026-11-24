@@ -16,6 +16,15 @@ EXPORT_FILES = {
     "steps": "stepcount.csv",
     "daily_sleep": "dailysleep.csv",
 }
+BUILT_TABLES = [
+    "nights",
+    "naps",
+    "night_times",
+    "awake_readings",
+    "day_factors",
+    "before_bed",
+    "nightly",
+]
 
 
 def sql(name):
@@ -26,7 +35,8 @@ def sql(name):
 def load_export(folder):
     """Load the Oura export in folder into a new in-memory DuckDB database.
 
-    Reads the files the site uses into tables, then builds the nights and the naps.
+    Reads the files the site uses into tables, then builds the nights, the naps and,
+    from them, the nightly table: one row per night with the sleep measures and factors.
     A file that is missing or empty gives an empty table.
     Returns the open connection.
     """
@@ -36,8 +46,8 @@ def load_export(folder):
         path = Path(folder) / name
         if path.is_file() and path.stat().st_size > 0:
             con.execute(sql(table), {"path": str(path)})
-    con.execute(sql("nights"))
-    con.execute(sql("naps"))
+    for table in BUILT_TABLES:
+        con.execute(sql(table))
     return con
 
 
