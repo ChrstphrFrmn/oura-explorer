@@ -1,0 +1,2 @@
+# Keep the demo export byte-for-byte as written (no line-ending changes)
+demo-data/* -text
