@@ -4,6 +4,9 @@
 --   2. Sleep of 10+ minutes less than an hour before or after a night is part of it:
 --      one sleep with a waking in the middle. Pieces chain, so the gaps are checked in
 --      time order. Two nights less than an hour apart become one, under the later day.
+--      Minutes asleep add up across the pieces; time in bed runs from the first piece's
+--      start to the last one's end; heart rate and HRV are averaged by minutes asleep;
+--      time to fall asleep is the first piece's.
 --   3. Each night is paired with the end of the night before: when its day began.
 CREATE TABLE nights AS
 WITH ranked AS (
@@ -44,9 +47,18 @@ joined AS (
         max(end_at) AS end_at,
         arg_min(start_local, start_at) AS start_local,
         arg_max(end_local, end_at) AS end_local,
+        (epoch(max(end_at)) - epoch(min(start_at))) / 60 AS in_bed_min,
         sum(asleep_min) AS asleep_min,
         sum(rem_min) AS rem_min,
         sum(deep_min) AS deep_min,
+        arg_min(latency_min, start_at) AS latency_min,
+        sum(average_hrv * asleep_min)
+            / sum(asleep_min) FILTER (WHERE average_hrv IS NOT NULL)
+            AS average_hrv,
+        sum(average_heart_rate * asleep_min)
+            / sum(asleep_min) FILTER (WHERE average_heart_rate IS NOT NULL)
+            AS average_heart_rate,
+        min(lowest_heart_rate) AS lowest_heart_rate,
         count(*) AS pieces
     FROM episodes
     GROUP BY episode
