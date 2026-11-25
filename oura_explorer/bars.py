@@ -81,7 +81,7 @@ BARS = {
         "Earlier or later than normal", 1.0, "per hour", 3, False, ("earlier", "later")
     ),
     "hours_awake": Bar(
-        "Hours awake", 1.5, "per 90 min more awake", 3, False, ("hours_awake",)
+        "Hours awake", 1.0, "per hour more awake", 3, False, ("hours_awake",)
     ),
     "bb_stress": Bar(
         "Stress before bed",
